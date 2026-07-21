@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: #FFF7F9;
+  color: #2C2C2A;
+}
+
+.hand { font-family: var(--font-caveat), cursive; }
+
+.row-item {
+  display: flex; align-items: center; gap: 12px; padding: 11px 0;
+  border-bottom: 1px dashed #F0DCE3;
+}
+.row-item:last-child { border-bottom: none; }
+
+.progress-fill-stripe {
+  background: repeating-linear-gradient(135deg, #D4537E, #D4537E 4px, #ED93B1 4px, #ED93B1 8px);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.4) sepia(1) saturate(3) hue-rotate(300deg);
+}
