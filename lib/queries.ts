@@ -30,34 +30,16 @@ export async function updateAccountOpeningBalance(accountId: string, openingBala
   if (error) throw error;
 }
 
-// ============================================================
-// ✅ VERSI BARU (PAKE SERVER TIME) - RECOMENDED
-// ============================================================
-export async function getTransactions(): Promise<Transaction[]> {
+export async function updateAccountGoal(accountId: string, goal: number) {
   const supabase = createClient();
-  
-  // Ambil tanggal dari server
-  const { data: monthStart } = await supabase
-    .rpc('get_month_start');
-  
-  const { data: monthEnd } = await supabase
-    .rpc('get_month_end');
-  
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('id, amount, type, category_id, account_id, tx_date, note')
-    .gte('tx_date', monthStart)
-    .lte('tx_date', monthEnd)
-    .order('tx_date', { ascending: false });
-  
+  const { error } = await supabase.from('accounts').update({ goal }).eq('id', accountId);
   if (error) throw error;
-  return (data || []).map((t: any) => ({ ...t, amount: Number(t.amount) }));
 }
 
-// ============================================================
-// 🔄 VERSI LAMA (PAKE PARAMETER) - BUAT BACKWARD COMPATIBILITY
-// ============================================================
-export async function getTransactionsWithDate(monthStart: string, monthEnd: string): Promise<Transaction[]> {
+// Range bulan (monthStart/monthEnd, format 'YYYY-MM-DD') dihitung di client
+// dari waktu lokal device — lihat lib/date.ts. Query ini gak pernah lagi
+// nanya "sekarang bulan berapa" ke server (yang defaultnya UTC).
+export async function getTransactions(monthStart: string, monthEnd: string): Promise<Transaction[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('transactions')
@@ -73,14 +55,46 @@ export async function createTransaction(tx: Omit<Transaction, 'id'>) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
-  
+
   const txData = {
     ...tx,
     user_id: user.id,
-    tx_date: tx.tx_date || new Date().toISOString().split('T')[0]
+    tx_date: tx.tx_date || new Date().toISOString().split('T')[0],
   };
-  
+
   const { error } = await supabase.from('transactions').insert(txData);
+  if (error) throw error;
+}
+
+export async function createAccount(acc: {
+  name: string; icon: string; ramp: string; type: 'cash' | 'savings' | 'debt';
+  opening_balance: number; goal: number;
+}) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await supabase.from('accounts').insert({ ...acc, user_id: user.id });
+  if (error) throw error;
+}
+
+// Hapus akun itu ngehapus SEMUA transaksinya juga (FK on delete cascade
+// di DB) — jadi kita cek dulu di sini biar user gak kehilangan histori
+// transaksi tanpa sadar. Gak ada cara "soft delete" tanpa migrasi FK,
+// jadi guard ini yang paling aman buat sekarang.
+export async function deleteAccount(accountId: string) {
+  const supabase = createClient();
+  const { count, error: countError } = await supabase
+    .from('transactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', accountId);
+  if (countError) throw countError;
+  if (count && count > 0) {
+    throw new Error(
+      `Akun ini masih punya ${count} transaksi. Pindahin atau hapus transaksinya dulu sebelum hapus akun.`
+    );
+  }
+  const { error } = await supabase.from('accounts').delete().eq('id', accountId);
   if (error) throw error;
 }
 
@@ -94,30 +108,4 @@ export async function deleteTransaction(id: string) {
   const supabase = createClient();
   const { error } = await supabase.from('transactions').delete().eq('id', id);
   if (error) throw error;
-}
-
-// ============================================================
-// ✅ SUMMARY BULAN INI (PAKE SERVER TIME)
-// ============================================================
-export async function getMonthlySummary() {
-  const supabase = createClient();
-  
-  const { data: monthStart } = await supabase
-    .rpc('get_month_start');
-  
-  const { data: monthEnd } = await supabase
-    .rpc('get_month_end');
-  
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('type, amount')
-    .gte('tx_date', monthStart)
-    .lte('tx_date', monthEnd);
-  
-  if (error) throw error;
-  
-  const inc = (data || []).filter(t => t.type === 'inc').reduce((s, t) => s + Number(t.amount), 0);
-  const exp = (data || []).filter(t => t.type === 'exp').reduce((s, t) => s + Number(t.amount), 0);
-  
-  return { inc, exp, saldo: inc - exp, total: data?.length || 0 };
 }

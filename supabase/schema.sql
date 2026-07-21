@@ -168,3 +168,44 @@ select '✅ DATABASE READY!' as status;
 select count(*) as total_categories from categories;
 select count(*) as total_accounts from accounts;
 select count(*) as total_transactions from transactions;
+-- ============================================================
+-- 13. CLEANUP — function nganggur, gak dipake app lagi
+-- (aman, cuma drop function, GAK nyentuh tabel/data)
+-- ============================================================
+drop function if exists get_server_time();
+drop function if exists get_month_start();
+drop function if exists get_month_end();
+
+-- ============================================================
+-- 14. PERFORMANCE — index buat account_balances view
+-- ============================================================
+-- account_balances (dipanggil tiap load Beranda/Akun) nge-JOIN +
+-- SUM semua transaksi per akun, dari histori penuh (bukan cuma
+-- sebulan). Tanpa index di account_id, ini bakal sequential scan
+-- ke seluruh tabel transactions tiap kali halaman dibuka — makin
+-- lama makin berat seiring histori numpuk. Index ini bikin Postgres
+-- bisa index-only scan buat agregasinya.
+create index if not exists tx_account_idx on transactions (account_id);
+
+select '✅ CLEANUP & INDEX READY!' as status;
+
+-- ============================================================
+-- 15. REVERT — kategori custom per-user (DIBATALKAN)
+-- ============================================================
+-- Section ini dulu nambahin fitur kategori custom, tapi dicabut lagi
+-- (value rendah, butuh UI manage yang belum digarap). Kalau kamu SUDAH
+-- sempet run migration "KATEGORI CUSTOM PER-USER" sebelumnya, jalanin
+-- blok di bawah buat balikin ke state semula — aman, cuma mundurin
+-- policy & kolom, TIDAK ngapus baris kategori bawaan.
+-- Kalau kamu BELUM pernah run migration itu, blok ini no-op (aman
+-- dijalanin juga, drop policy/column if-exists semua).
+drop policy if exists "categories_insert_own" on categories;
+drop policy if exists "categories_delete_own" on categories;
+
+drop policy if exists "categories_select_all" on categories;
+create policy "categories_select_all" on categories
+  for select using (auth.role() = 'authenticated');
+
+alter table categories drop column if exists user_id;
+
+select '✅ REVERTED — kategori custom dicabut' as status;

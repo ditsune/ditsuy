@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { useDashboard } from '@/components/DashboardShell';
 import { RAMP_HEX, fmt } from '@/lib/types';
-import { updateAccountOpeningBalance } from '@/lib/queries';
-import { createClient } from '@/lib/supabase/client';
+import { updateAccountOpeningBalance, updateAccountGoal, createAccount, deleteAccount } from '@/lib/queries';
+import { IconRampPicker } from '@/components/IconRampPicker';
 
 export default function AkunPage() {
   const { accounts, loading, refresh } = useDashboard();
@@ -11,22 +11,75 @@ export default function AkunPage() {
   const [goalInput, setGoalInput] = useState('');
   const [editingBalance, setEditingBalance] = useState<string | null>(null);
   const [balanceInput, setBalanceInput] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const [showNewAcc, setShowNewAcc] = useState(false);
+  const [newAccName, setNewAccName] = useState('');
+  const [newAccType, setNewAccType] = useState<'cash' | 'savings' | 'debt'>('cash');
+  const [newAccIcon, setNewAccIcon] = useState('ti-wallet');
+  const [newAccRamp, setNewAccRamp] = useState('pink');
+  const [newAccBalance, setNewAccBalance] = useState('');
+  const [savingAcc, setSavingAcc] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const netWorth = accounts.reduce((s, a) => s + a.balance, 0);
 
   async function saveGoal(accountId: string) {
-    const supabase = createClient();
-    const raw = parseInt(goalInput.replace(/[^\d]/g, '') || '0', 10);
-    await supabase.from('accounts').update({ goal: raw }).eq('id', accountId);
-    setEditingGoal(null);
-    refresh();
+    setActionError(null);
+    try {
+      const raw = parseInt(goalInput.replace(/[^\d]/g, '') || '0', 10);
+      await updateAccountGoal(accountId, raw);
+      setEditingGoal(null);
+      refresh();
+    } catch (e: any) {
+      setActionError(e?.message || 'Gagal simpan target');
+    }
   }
 
   async function saveOpeningBalance(accountId: string) {
-    const raw = parseInt(balanceInput.replace(/[^\d]/g, '') || '0', 10);
-    await updateAccountOpeningBalance(accountId, raw);
-    setEditingBalance(null);
-    refresh();
+    setActionError(null);
+    try {
+      const raw = parseInt(balanceInput.replace(/[^\d]/g, '') || '0', 10);
+      await updateAccountOpeningBalance(accountId, raw);
+      setEditingBalance(null);
+      refresh();
+    } catch (e: any) {
+      setActionError(e?.message || 'Gagal simpan saldo awal');
+    }
+  }
+
+  async function saveNewAccount() {
+    if (!newAccName.trim()) { setActionError('Nama akun kosong'); return; }
+    setSavingAcc(true);
+    setActionError(null);
+    try {
+      await createAccount({
+        name: newAccName.trim(), icon: newAccIcon, ramp: newAccRamp, type: newAccType,
+        opening_balance: parseInt(newAccBalance.replace(/[^\d]/g, '') || '0', 10),
+        goal: 0,
+      });
+      setShowNewAcc(false);
+      setNewAccName(''); setNewAccBalance('');
+      refresh();
+    } catch (e: any) {
+      setActionError(e?.message || 'Gagal bikin akun');
+    } finally {
+      setSavingAcc(false);
+    }
+  }
+
+  async function handleDeleteAccount(accountId: string) {
+    if (!confirm('Hapus akun ini? Cuma bisa kalau belum ada transaksinya.')) return;
+    setDeletingId(accountId);
+    setActionError(null);
+    try {
+      await deleteAccount(accountId);
+      refresh();
+    } catch (e: any) {
+      setActionError(e?.message || 'Gagal hapus akun');
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   if (loading) return <p className="px-[18px] py-10 text-center text-sm text-gray-400">Memuat...</p>;
@@ -36,6 +89,63 @@ export default function AkunPage() {
       <div className="text-center pt-[22px] px-[18px] pb-2.5">
         <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Kekayaan bersih</p>
         <p className="hand text-4xl">{netWorth < 0 ? '-' : ''}{fmt(netWorth)}</p>
+      </div>
+
+      {actionError && (
+        <div className="mx-[18px] mb-3.5 bg-coral-50 border border-coral-400 text-coral-800 text-xs rounded-xl px-3.5 py-2.5">
+          {actionError}
+        </div>
+      )}
+
+      <div className="mx-[18px] mb-3.5">
+        {!showNewAcc ? (
+          <button
+            onClick={() => setShowNewAcc(true)}
+            className="w-full border border-dashed border-pink-300 text-pink-600 text-xs font-medium py-2.5 rounded-2xl"
+          >
+            <i className="ti ti-plus mr-1" /> Tambah akun
+          </button>
+        ) : (
+          <div className="bg-white border border-pink-100 rounded-2xl p-4">
+            <input
+              autoFocus placeholder="Nama akun (mis. GoPay, Rekening BCA)" value={newAccName}
+              onChange={(e) => setNewAccName(e.target.value)}
+              className="w-full border border-pink-100 rounded-lg px-3 py-2 text-sm outline-none mb-3"
+            />
+            <div className="flex gap-1.5 mb-3">
+              {(['cash', 'savings', 'debt'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setNewAccType(t)}
+                  className={`flex-1 text-xs py-2 rounded-lg border ${newAccType === t ? 'bg-pink-50 border-pink-400 text-pink-600' : 'border-pink-100 text-gray-400'}`}
+                >
+                  {t === 'cash' ? 'Dompet' : t === 'savings' ? 'Tabungan' : 'Utang/Cicilan'}
+                </button>
+              ))}
+            </div>
+            <input
+              inputMode="numeric" placeholder="Saldo awal (Rp, opsional)" value={newAccBalance}
+              onChange={(e) => setNewAccBalance(e.target.value.replace(/[^\d]/g, ''))}
+              className="w-full border border-pink-100 rounded-lg px-3 py-2 text-sm outline-none mb-3"
+            />
+            <IconRampPicker icon={newAccIcon} ramp={newAccRamp} onIcon={setNewAccIcon} onRamp={setNewAccRamp} />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowNewAcc(false)}
+                className="flex-1 text-xs py-2 rounded-lg border border-pink-100 text-gray-500"
+              >
+                Batal
+              </button>
+              <button
+                onClick={saveNewAccount}
+                disabled={savingAcc}
+                className="flex-1 text-xs py-2 rounded-lg bg-pink-400 text-white font-medium disabled:opacity-50"
+              >
+                {savingAcc ? 'Menyimpan...' : 'Simpan akun'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {accounts.map((a) => {
@@ -55,6 +165,14 @@ export default function AkunPage() {
               </div>
 <p className="text-[13px] font-semibold flex-1">{a.name}</p>
               <span className="text-[13px] font-semibold">{fmt(a.balance)}</span>
+              <button
+                onClick={() => handleDeleteAccount(a.id)}
+                disabled={deletingId === a.id}
+                className="text-gray-300 hover:text-coral-800 disabled:opacity-50"
+                title="Hapus akun"
+              >
+                <i className="ti ti-trash text-sm" />
+              </button>
             </div>
 
             {editingBalance === a.id ? (

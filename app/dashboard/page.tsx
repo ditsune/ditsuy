@@ -1,44 +1,34 @@
 'use client';
+import { useMemo, useCallback } from 'react';
 import { useDashboard } from '@/components/DashboardShell';
 import { RAMP_HEX, fmt } from '@/lib/types';
-import { useEffect, useState } from 'react';
-import { getMonthlySummary } from '@/lib/queries';
 
 export default function BerandaPage() {
   const { categories, accounts, transactions, loading, openEdit } = useDashboard();
-  
-  // ✅ FIX: Pake state buat summary biar bisa di-refresh
-  const [summary, setSummary] = useState({ inc: 0, exp: 0, saldo: 0, total: 0 });
-  const [loadingSummary, setLoadingSummary] = useState(true);
 
-  // ✅ FIX: Ambil summary dari server
-  useEffect(() => {
-    async function fetchSummary() {
-      try {
-        const result = await getMonthlySummary();
-        setSummary(result);
-      } catch (error) {
-        console.error('Error fetching summary:', error);
-      } finally {
-        setLoadingSummary(false);
-      }
-    }
-    fetchSummary();
-  }, [transactions]); // Re-fetch kalo transaksi berubah
+  // Summary dihitung langsung dari transaksi yang udah kefetch untuk bulan
+  // yang lagi aktif (lihat DashboardShell + lib/date.ts) — gak perlu query
+  // terpisah ke server lagi, jadi satu-satunya sumber kebenaran.
+  // Dibungkus useMemo biar gak keitung ulang tiap render (misal pas sheet
+  // transaksi lagi kebuka dan user ngetik).
+  const { incomes, expenses, inc, exp, saldo, total } = useMemo(() => {
+    const incomes = transactions.filter((t) => t.type === 'inc');
+    const expenses = transactions.filter((t) => t.type === 'exp');
+    const inc = incomes.reduce((sum, t) => sum + t.amount, 0);
+    const exp = expenses.reduce((sum, t) => sum + t.amount, 0);
+    return { incomes, expenses, inc, exp, saldo: inc - exp, total: transactions.length };
+  }, [transactions]);
 
-  // ✅ FIX: Pake data dari summary (server time)
-  const inc = summary.inc;
-  const exp = summary.exp;
-  const saldo = summary.saldo;
-  
-  // Filter transaksi untuk list (udah dari server)
-  const incomes = transactions.filter((t) => t.type === 'inc');
-  const expenses = transactions.filter((t) => t.type === 'exp');
+  const catOf = useCallback(
+    (id: string) => categories.find((c) => c.id === id) || { name: id, icon: 'ti-dots', ramp: 'pink' },
+    [categories]
+  );
+  const accOf = useCallback(
+    (id: string) => accounts.find((a) => a.id === id)?.name || '',
+    [accounts]
+  );
 
-  function catOf(id: string) { return categories.find((c) => c.id === id) || { name: id, icon: 'ti-dots', ramp: 'pink' }; }
-  function accOf(id: string) { return accounts.find((a) => a.id === id)?.name || ''; }
-
-  if (loading || loadingSummary) return <p className="px-[18px] py-10 text-center text-sm text-gray-400">Memuat...</p>;
+  if (loading) return <p className="px-[18px] py-10 text-center text-sm text-gray-400">Memuat...</p>;
 
   return (
     <>
@@ -59,7 +49,7 @@ export default function BerandaPage() {
 
       <div className="px-[18px] mb-5 text-center">
         <p className="text-xs text-gray-400">
-          {summary.total ? `${summary.total} transaksi bulan ini` : 'Belum ada transaksi bulan ini'}
+          {total ? `${total} transaksi bulan ini` : 'Belum ada transaksi bulan ini'}
         </p>
       </div>
 
