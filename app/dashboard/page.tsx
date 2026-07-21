@@ -1,26 +1,50 @@
 'use client';
 import { useDashboard } from '@/components/DashboardShell';
 import { RAMP_HEX, fmt } from '@/lib/types';
+import { useEffect, useState } from 'react';
+import { getMonthlySummary } from '@/lib/queries';
 
 export default function BerandaPage() {
   const { categories, accounts, transactions, loading, openEdit } = useDashboard();
+  
+  // ✅ FIX: Pake state buat summary biar bisa di-refresh
+  const [summary, setSummary] = useState({ inc: 0, exp: 0, saldo: 0, total: 0 });
+  const [loadingSummary, setLoadingSummary] = useState(true);
 
-  const inc = transactions.filter((t) => t.type === 'inc').reduce((s, t) => s + t.amount, 0);
-  const exp = transactions.filter((t) => t.type === 'exp').reduce((s, t) => s + t.amount, 0);
-  const saldo = inc - exp;
+  // ✅ FIX: Ambil summary dari server
+  useEffect(() => {
+    async function fetchSummary() {
+      try {
+        const result = await getMonthlySummary();
+        setSummary(result);
+      } catch (error) {
+        console.error('Error fetching summary:', error);
+      } finally {
+        setLoadingSummary(false);
+      }
+    }
+    fetchSummary();
+  }, [transactions]); // Re-fetch kalo transaksi berubah
+
+  // ✅ FIX: Pake data dari summary (server time)
+  const inc = summary.inc;
+  const exp = summary.exp;
+  const saldo = summary.saldo;
+  
+  // Filter transaksi untuk list (udah dari server)
   const incomes = transactions.filter((t) => t.type === 'inc');
   const expenses = transactions.filter((t) => t.type === 'exp');
 
   function catOf(id: string) { return categories.find((c) => c.id === id) || { name: id, icon: 'ti-dots', ramp: 'pink' }; }
   function accOf(id: string) { return accounts.find((a) => a.id === id)?.name || ''; }
 
-  if (loading) return <p className="px-[18px] py-10 text-center text-sm text-gray-400">Memuat...</p>;
+  if (loading || loadingSummary) return <p className="px-[18px] py-10 text-center text-sm text-gray-400">Memuat...</p>;
 
   return (
     <>
       <div className="flex gap-2.5 px-[18px] mb-3.5">
         <div className="flex-1 bg-white rounded-2xl px-3 py-2.5 border border-pink-100">
-          <p className="text-[10px] uppercase text-gray-400 mb-1">Saldo</p>
+          <p className="text-[10px] uppercase text-gray-400 mb-1">Saldo Bulan Ini</p>
           <p className="text-[13px] font-semibold text-pink-600">{fmt(saldo)}</p>
         </div>
         <div className="flex-1 bg-white rounded-2xl px-3 py-2.5 border border-pink-100">
@@ -35,7 +59,7 @@ export default function BerandaPage() {
 
       <div className="px-[18px] mb-5 text-center">
         <p className="text-xs text-gray-400">
-          {transactions.length ? `${transactions.length} transaksi bulan ini` : 'Belum ada transaksi bulan ini'}
+          {summary.total ? `${summary.total} transaksi bulan ini` : 'Belum ada transaksi bulan ini'}
         </p>
       </div>
 

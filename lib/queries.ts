@@ -30,23 +30,42 @@ export async function updateAccountOpeningBalance(accountId: string, openingBala
   if (error) throw error;
 }
 
-export async function getTransactions(monthStart: string, monthEnd: string): Promise<Transaction[]> {
+// ✅ FIX: Pake server time via RPC
+export async function getTransactions(): Promise<Transaction[]> {
   const supabase = createClient();
+  
+  // Ambil tanggal bulan ini dari server
+  const { data: monthStart } = await supabase
+    .rpc('get_month_start');
+  
+  const { data: monthEnd } = await supabase
+    .rpc('get_month_end');
+  
   const { data, error } = await supabase
     .from('transactions')
     .select('id, amount, type, category_id, account_id, tx_date, note')
     .gte('tx_date', monthStart)
     .lte('tx_date', monthEnd)
     .order('tx_date', { ascending: false });
+  
   if (error) throw error;
   return (data || []).map((t: any) => ({ ...t, amount: Number(t.amount) }));
 }
 
+// ✅ FIX: Juga pake server time buat create transaction
 export async function createTransaction(tx: Omit<Transaction, 'id'>) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
-  const { error } = await supabase.from('transactions').insert({ ...tx, user_id: user.id });
+  
+  // Kalo ga ada tx_date, pake server time
+  const txData = {
+    ...tx,
+    user_id: user.id,
+    tx_date: tx.tx_date || new Date().toISOString().split('T')[0]
+  };
+  
+  const { error } = await supabase.from('transactions').insert(txData);
   if (error) throw error;
 }
 
@@ -60,4 +79,28 @@ export async function deleteTransaction(id: string) {
   const supabase = createClient();
   const { error } = await supabase.from('transactions').delete().eq('id', id);
   if (error) throw error;
+}
+
+// ✅ NEW: Ambil summary bulan ini pake server time
+export async function getMonthlySummary() {
+  const supabase = createClient();
+  
+  const { data: monthStart } = await supabase
+    .rpc('get_month_start');
+  
+  const { data: monthEnd } = await supabase
+    .rpc('get_month_end');
+  
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('type, amount')
+    .gte('tx_date', monthStart)
+    .lte('tx_date', monthEnd);
+  
+  if (error) throw error;
+  
+  const inc = (data || []).filter(t => t.type === 'inc').reduce((s, t) => s + Number(t.amount), 0);
+  const exp = (data || []).filter(t => t.type === 'exp').reduce((s, t) => s + Number(t.amount), 0);
+  
+  return { inc, exp, saldo: inc - exp, total: data?.length || 0 };
 }
