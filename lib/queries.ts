@@ -30,11 +30,13 @@ export async function updateAccountOpeningBalance(accountId: string, openingBala
   if (error) throw error;
 }
 
-// ✅ FIX: Pake server time via RPC
+// ============================================================
+// ✅ VERSI BARU (PAKE SERVER TIME) - RECOMENDED
+// ============================================================
 export async function getTransactions(): Promise<Transaction[]> {
   const supabase = createClient();
   
-  // Ambil tanggal bulan ini dari server
+  // Ambil tanggal dari server
   const { data: monthStart } = await supabase
     .rpc('get_month_start');
   
@@ -52,13 +54,26 @@ export async function getTransactions(): Promise<Transaction[]> {
   return (data || []).map((t: any) => ({ ...t, amount: Number(t.amount) }));
 }
 
-// ✅ FIX: Juga pake server time buat create transaction
+// ============================================================
+// 🔄 VERSI LAMA (PAKE PARAMETER) - BUAT BACKWARD COMPATIBILITY
+// ============================================================
+export async function getTransactionsWithDate(monthStart: string, monthEnd: string): Promise<Transaction[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('id, amount, type, category_id, account_id, tx_date, note')
+    .gte('tx_date', monthStart)
+    .lte('tx_date', monthEnd)
+    .order('tx_date', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((t: any) => ({ ...t, amount: Number(t.amount) }));
+}
+
 export async function createTransaction(tx: Omit<Transaction, 'id'>) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
   
-  // Kalo ga ada tx_date, pake server time
   const txData = {
     ...tx,
     user_id: user.id,
@@ -81,7 +96,9 @@ export async function deleteTransaction(id: string) {
   if (error) throw error;
 }
 
-// ✅ NEW: Ambil summary bulan ini pake server time
+// ============================================================
+// ✅ SUMMARY BULAN INI (PAKE SERVER TIME)
+// ============================================================
 export async function getMonthlySummary() {
   const supabase = createClient();
   
