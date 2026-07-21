@@ -2,12 +2,15 @@
 import { useState } from 'react';
 import { useDashboard } from '@/components/DashboardShell';
 import { RAMP_HEX, fmt } from '@/lib/types';
+import { updateAccountOpeningBalance } from '@/lib/queries';
 import { createClient } from '@/lib/supabase/client';
 
 export default function AkunPage() {
   const { accounts, loading, refresh } = useDashboard();
   const [editingGoal, setEditingGoal] = useState<string | null>(null);
   const [goalInput, setGoalInput] = useState('');
+  const [editingBalance, setEditingBalance] = useState<string | null>(null);
+  const [balanceInput, setBalanceInput] = useState('');
 
   const netWorth = accounts.reduce((s, a) => s + a.balance, 0);
 
@@ -16,6 +19,13 @@ export default function AkunPage() {
     const raw = parseInt(goalInput.replace(/[^\d]/g, '') || '0', 10);
     await supabase.from('accounts').update({ goal: raw }).eq('id', accountId);
     setEditingGoal(null);
+    refresh();
+  }
+
+  async function saveOpeningBalance(accountId: string) {
+    const raw = parseInt(balanceInput.replace(/[^\d]/g, '') || '0', 10);
+    await updateAccountOpeningBalance(accountId, raw);
+    setEditingBalance(null);
     refresh();
   }
 
@@ -43,9 +53,28 @@ export default function AkunPage() {
               >
                 <i className={`ti ${a.icon}`} />
               </div>
-              <p className="text-[13px] font-semibold flex-1">{a.name}</p>
-              <span className="text-[13px] font-semibold">{a.balance < 0 ? '-' : ''}{fmt(a.balance)}</span>
+<p className="text-[13px] font-semibold flex-1">{a.name}</p>
+              <span className="text-[13px] font-semibold">{fmt(a.balance)}</span>
             </div>
+
+            {editingBalance === a.id ? (
+              <div className="flex gap-1.5 mb-2.5">
+                <input
+                  autoFocus inputMode="numeric" placeholder="Saldo awal (Rp)"
+                  value={balanceInput}
+                  onChange={(e) => setBalanceInput(e.target.value.replace(/[^\d]/g, ''))}
+                  className="flex-1 border border-pink-100 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                />
+                <button onClick={() => saveOpeningBalance(a.id)} className="text-xs bg-pink-400 text-white px-3 rounded-lg">OK</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setEditingBalance(a.id); setBalanceInput(String(a.opening_balance)); }}
+                className="text-[11px] text-pink-600 mb-2.5 block"
+              >
+                Atur saldo awal
+              </button>
+            )}
 
             {a.type !== 'cash' && (
               <>

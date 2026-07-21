@@ -75,9 +75,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   function openAdd() {
+    if (accounts.length === 0) {
+      setLoadError('Belum ada akun. Refresh halaman atau cek koneksi.');
+      return;
+    }
     setSheetOpen({
       amount: 0, type: 'exp', category_id: null,
-      account_id: accounts[0]?.id || '',
+      account_id: accounts[0].id,
       tx_date: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,
       note: '',
     });

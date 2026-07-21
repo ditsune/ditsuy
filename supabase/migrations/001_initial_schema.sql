@@ -1,6 +1,6 @@
 -- ============================================================
--- schema.sql
--- GABUNGAN SEMUA MIGRASI (AMAN - IDEMPOTENT)
+-- 001_initial_schema.sql
+-- JALANKAN 1X SAJA SAAT PERTAMA KALI SETUP
 -- ============================================================
 
 -- 1. EXTENSION
@@ -16,7 +16,7 @@ create table if not exists categories (
   sort_order int not null default 999
 );
 
--- 3. ACCOUNTS (dengan opening_balance)
+-- 3. ACCOUNTS
 create table if not exists accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -25,11 +25,8 @@ create table if not exists accounts (
   ramp text not null default 'pink',
   type text not null check (type in ('cash','savings','debt')),
   goal numeric not null default 0,
-  opening_balance numeric not null default 0,
   created_at timestamptz not null default now()
 );
-
-alter table accounts add column if not exists opening_balance numeric not null default 0;
 
 -- 4. TRANSACTIONS
 create table if not exists transactions (
@@ -47,42 +44,8 @@ create table if not exists transactions (
 -- 5. INDEXES
 create index if not exists tx_user_date_idx on transactions (user_id, tx_date desc);
 
--- 6. CATEGORIES SEED (AMAN)
-insert into categories (id, name, icon, ramp, type, sort_order) values
-  ('gaji','Gaji','ti-cash','green','inc',1),
-  ('freelance','Cuan Sampingan','ti-briefcase','green','inc',2),
-  ('uangjajan','Uang Jajan','ti-gift-card','green','inc',3),
-  ('investasi','Hasil Investasi','ti-chart-line','green','inc',4),
-  ('makan','Makan','ti-basket','coral','exp',10),
-  ('jajan','Jajan','ti-cup','coral','exp',11),
-  ('bahanmakanan','Bahan Makanan','ti-shopping-cart','coral','exp',12),
-  ('ojol','Transportasi & Ojol','ti-bus','amber','exp',13),
-  ('bensin','Bensin & Parkir','ti-gas-station','amber','exp',14),
-  ('kos','Kos & Sewa','ti-home','pink','exp',15),
-  ('tagihan','Listrik & Air','ti-flame','amber','exp',16),
-  ('internet','Internet','ti-wifi','amber','exp',17),
-  ('langganan','Langganan Apps','ti-device-tv','purple','exp',18),
-  ('cicilan','Cicilan & Pinjol','ti-credit-card','green','exp',19),
-  ('nongkrong','Nongkrong & Hangout','ti-glass-cocktail','purple','exp',20),
-  ('fashion','Fashion & Style','ti-hanger','pink','exp',21),
-  ('skincare','Skincare & Glow Up','ti-flower','teal','exp',22),
-  ('selfreward','Self Reward','ti-heart','pink','exp',23),
-  ('healing','Healing & Liburan','ti-beach','blue','exp',24),
-  ('hewan','Peliharaan','ti-dog','amber','exp',25),
-  ('orangtua','Kirim ke Ortu','ti-heart-handshake','blue','exp',26),
-  ('hadiah','Hadiah & Kado','ti-gift','purple','both',27),
-  ('lainnya','Lainnya','ti-dots','pink','both',999)
-on conflict (id) do update set
-  name = excluded.name,
-  icon = excluded.icon,
-  ramp = excluded.ramp,
-  type = excluded.type,
-  sort_order = excluded.sort_order;
-
--- 7. VIEW ACCOUNT BALANCES
-drop view if exists account_balances;
-
-create view account_balances
+-- 6. VIEW ACCOUNT BALANCES
+create or replace view account_balances
 with (security_invoker = true) as
 select
   a.id as account_id,
@@ -92,13 +55,13 @@ select
   a.ramp,
   a.type,
   a.goal,
-  a.opening_balance,
-  a.opening_balance + coalesce(sum(case when t.type = 'inc' then t.amount else -t.amount end), 0) as balance
+  coalesce(sum(case when t.type = 'inc' then t.amount else -t.amount end), 0) as balance
 from accounts a
 left join transactions t on t.account_id = a.id
 group by a.id;
 
--- 8. RLS POLICIES
+-- 7. RLS POLICIES
+-- ACCOUNTS
 alter table accounts enable row level security;
 drop policy if exists "accounts_select_own" on accounts;
 drop policy if exists "accounts_insert_own" on accounts;
@@ -110,6 +73,7 @@ create policy "accounts_insert_own" on accounts for insert with check (auth.uid(
 create policy "accounts_update_own" on accounts for update using (auth.uid() = user_id);
 create policy "accounts_delete_own" on accounts for delete using (auth.uid() = user_id);
 
+-- TRANSACTIONS
 alter table transactions enable row level security;
 drop policy if exists "tx_select_own" on transactions;
 drop policy if exists "tx_insert_own" on transactions;
@@ -121,11 +85,12 @@ create policy "tx_insert_own" on transactions for insert with check (auth.uid() 
 create policy "tx_update_own" on transactions for update using (auth.uid() = user_id);
 create policy "tx_delete_own" on transactions for delete using (auth.uid() = user_id);
 
+-- CATEGORIES
 alter table categories enable row level security;
 drop policy if exists "categories_select_all" on categories;
 create policy "categories_select_all" on categories for select using (auth.role() = 'authenticated');
 
--- 9. AUTO-PROVISION ACCOUNTS
+-- 8. AUTO-PROVISION ACCOUNTS
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -142,14 +107,14 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- 10. GRANT PERMISSIONS
+-- 9. GRANT PERMISSIONS
 grant usage on schema public to public, authenticated, anon, service_role;
 grant all on categories to authenticated, anon, service_role;
 grant all on accounts to authenticated, anon, service_role;
 grant all on transactions to authenticated, anon, service_role;
 grant select on account_balances to authenticated, anon, service_role;
 
--- 11. BACKFILL
+-- 10. BACKFILL (buat user lama)
 insert into public.accounts (user_id, name, icon, ramp, type, goal)
 select u.id, 'Dompet Digital', 'ti-wallet', 'coral', 'cash', 0
 from auth.users u
@@ -163,8 +128,5 @@ select u.id, 'Kartu Kredit', 'ti-credit-card', 'green', 'debt', 0
 from auth.users u
 where not exists (select 1 from public.accounts a where a.user_id = u.id);
 
--- 12. VERIFIKASI
-select '✅ DATABASE READY!' as status;
-select count(*) as total_categories from categories;
-select count(*) as total_accounts from accounts;
-select count(*) as total_transactions from transactions;
+-- 11. VERIFIKASI
+select '✅ INITIAL SCHEMA READY!' as status;

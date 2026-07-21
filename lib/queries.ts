@@ -12,12 +12,22 @@ export async function getAccounts(): Promise<Account[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('account_balances')
-    .select('account_id, name, icon, ramp, type, goal, balance');
+    .select('account_id, name, icon, ramp, type, goal, opening_balance, balance');
   if (error) throw error;
   return (data || []).map((a: any) => ({
     id: a.account_id, name: a.name, icon: a.icon, ramp: a.ramp,
-    type: a.type, goal: Number(a.goal), balance: Number(a.balance),
+    type: a.type, goal: Number(a.goal),
+    opening_balance: Number(a.opening_balance), balance: Number(a.balance),
   }));
+}
+
+export async function updateAccountOpeningBalance(accountId: string, openingBalance: number) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('accounts')
+    .update({ opening_balance: openingBalance })
+    .eq('id', accountId);
+  if (error) throw error;
 }
 
 export async function getTransactions(monthStart: string, monthEnd: string): Promise<Transaction[]> {

@@ -13,6 +13,7 @@ export type Account = {
   ramp: string;
   type: 'cash' | 'savings' | 'debt';
   goal: number;
+  opening_balance: number;
   balance: number;
 };
 
@@ -39,7 +40,8 @@ export const RAMP_HEX: Record<string, { bg: string; fg: string }> = {
 };
 
 export function fmt(n: number): string {
-  return 'Rp' + Math.round(Math.abs(n)).toLocaleString('id-ID');
+  const sign = n < 0 ? '-' : '';
+  return sign + 'Rp' + Math.round(Math.abs(n)).toLocaleString('id-ID');
 }
 
 export const MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
